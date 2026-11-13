@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f7f7f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#18191b" media="(prefers-color-scheme: dark)">
+<title>RSSリーダー</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<!-- ログイン画面 -->
+<section id="login" class="login" hidden>
+  <div class="login-box">
+    <img src="icon.svg" alt="" width="64" height="64">
+    <h1>RSSリーダー</h1>
+    <p>好きなサイトの新着記事をまとめて読めます。</p>
+    <button id="google-login" class="btn primary big">Googleでログイン</button>
+    <p id="login-msg" class="muted"></p>
+  </div>
+</section>
+
+<!-- メイン画面 -->
+<div id="app" class="app" hidden>
+  <aside id="sidebar" class="sidebar">
+    <div class="side-head">
+      <strong>RSSリーダー</strong>
+      <button id="add-feed-btn" class="btn primary small">＋ 追加</button>
+    </div>
+    <nav id="nav" class="nav"></nav>
+    <div class="side-foot">
+      <button id="new-folder-btn" class="link">＋ フォルダを作る</button>
+      <div class="user-row"><span id="user-email" class="muted"></span><button id="logout-btn" class="link">ログアウト</button></div>
+    </div>
+  </aside>
+  <div id="backdrop" class="backdrop"></div>
+
+  <main class="list-pane">
+    <header class="bar">
+      <button id="menu-btn" class="icon-btn only-narrow" aria-label="メニュー">☰</button>
+      <h2 id="view-title">すべて</h2>
+      <label class="toggle"><input type="checkbox" id="unread-only"> 未読のみ</label>
+      <button id="mark-all-btn" class="icon-btn" title="表示中をすべて既読にする" aria-label="すべて既読">✓</button>
+    </header>
+    <div id="status" class="status"></div>
+    <div id="list-scroll" class="list-scroll">
+      <div id="ptr" class="ptr"><span class="ptr-icon">↓</span><span class="ptr-text">引っぱって更新</span></div>
+      <ul id="list" class="list"></ul>
+      <div id="list-foot" class="list-foot"></div>
+    </div>
+  </main>
+
+  <article id="reader" class="reader">
+    <div class="reader-bar">
+      <button id="reader-back" class="icon-btn only-mobile" aria-label="戻る">‹ 戻る</button>
+      <span class="spacer"></span>
+      <button id="r-star" class="icon-btn" aria-label="お気に入り">☆</button>
+      <button id="r-read" class="btn small"></button>
+      <a id="r-open" class="btn small" target="_blank" rel="noopener">元記事 ↗</a>
+    </div>
+    <div id="reader-body" class="reader-body">
+      <div class="empty">記事を選ぶとここに表示されます</div>
+    </div>
+  </article>
+</div>
+
+<!-- フィード追加 -->
+<dialog id="add-dialog">
+  <form id="add-form" method="dialog">
+    <h3>フィードを追加</h3>
+    <label>サイトまたはフィードのURL
+      <input id="add-url" type="text" inputmode="url" placeholder="例: https://zenn.dev/topics/react" required autocomplete="off">
+    </label>
+    <p class="hint">サイトのURLを入れると、読めるRSS/AtomのURLを自動で探して登録します。</p>
+    <label>フォルダ
+      <select id="add-folder"></select>
+    </label>
+    <label id="add-newfolder-wrap" hidden>新しいフォルダ名
+      <input id="add-newfolder" type="text">
+    </label>
+    <p id="add-msg" class="msg"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn" data-close>キャンセル</button>
+      <button type="submit" class="btn primary" id="add-submit">追加</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- フィード編集 -->
+<dialog id="feed-dialog">
+  <form id="feed-form" method="dialog">
+    <h3>フィードの設定</h3>
+    <label>名前 <input id="feed-title" type="text" required></label>
+    <label>フォルダ <select id="feed-folder"></select></label>
+    <p class="hint">フィードURL: <span id="feed-url" class="break"></span></p>
+    <p id="feed-err" class="msg"></p>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="feed-delete">削除</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>キャンセル</button>
+      <button type="submit" class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- フォルダ編集 -->
+<dialog id="folder-dialog">
+  <form id="folder-form" method="dialog">
+    <h3 id="folder-dlg-title">フォルダ</h3>
+    <label>フォルダ名 <input id="folder-name" type="text" required></label>
+    <div class="dlg-actions">
+      <button type="button" class="btn danger" id="folder-delete">削除</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-close>キャンセル</button>
+      <button type="submit" class="btn primary">保存</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+</body>
+</html>
