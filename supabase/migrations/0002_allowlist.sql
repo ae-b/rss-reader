@@ -9,6 +9,8 @@ revoke all on schema private from public, anon, authenticated;
 create table private.allowed_emails (
   email text primary key
 );
+-- ポリシーなし＝API経由では誰も読めない（下のチェック関数は所有者権限なので影響なし）
+alter table private.allowed_emails enable row level security;
 
 create function private.check_allowed_email()
 returns trigger
