@@ -52,6 +52,11 @@ create policy "own feeds"    on public.feeds    for all
 create policy "own articles" on public.articles for all
   using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- 「新しいテーブルを自動で公開」がオフでも使えるよう、ログイン済みユーザーにだけ明示的に許可
+-- （どの行に触れるかは上のポリシーで本人の分だけに絞られる）
+grant usage on schema public to authenticated;
+grant select, insert, update, delete on public.folders, public.feeds, public.articles to authenticated;
+
 -- フィードごとの未読数
 create function public.unread_counts()
 returns table (feed_id uuid, unread bigint)
@@ -61,3 +66,6 @@ as $$
   where user_id = auth.uid() and not is_read
   group by feed_id
 $$;
+
+revoke execute on function public.unread_counts() from public, anon;
+grant execute on function public.unread_counts() to authenticated;
