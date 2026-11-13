@@ -48,7 +48,9 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   const auth = req.headers.get("Authorization") ?? "";
-  const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+  // ブラウザが送ってくる公開用キー（sb_publishable_…）を優先。ログイン確認は下の getUser で行う
+  const key = req.headers.get("apikey") || Deno.env.get("SUPABASE_ANON_KEY")!;
+  const db = createClient(Deno.env.get("SUPABASE_URL")!, key, {
     global: { headers: { Authorization: auth } },
   });
   const { data: { user } } = await db.auth.getUser(auth.replace(/^Bearer /, ""));

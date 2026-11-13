@@ -30,7 +30,7 @@ PC・スマホで使える、アカウントごとのRSSリーダー。すべて
 ```sh
 cd rss-reader
 npx supabase login
-npx supabase functions deploy feeds --project-ref <プロジェクトID>
+npx supabase functions deploy feeds --project-ref <プロジェクトID> --no-verify-jwt
 ```
 （プロジェクトIDは Project URL の `https://<ここ>.supabase.co` の部分）
 

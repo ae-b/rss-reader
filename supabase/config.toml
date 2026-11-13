@@ -1,0 +1,6 @@
+project_id = "xhlaqedydttpnhnydlrx"
+
+# ログイン確認は関数の中（auth.getUser）で行うので、ゲートウェイでのJWT検証はオフ
+# （新しい署名鍵方式のプロジェクトでは旧来の検証が通らないため）
+[functions.feeds]
+verify_jwt = false
