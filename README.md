@@ -19,7 +19,12 @@ PC・スマホで使える、アカウントごとのRSSリーダー。すべて
 ### 1. Supabase プロジェクトを作る
 1. https://supabase.com で無料アカウント作成 → New project（Region は Tokyo）
 2. 左メニュー **SQL Editor** に `supabase/migrations/0001_init.sql` の中身を貼って Run
-3. **Project Settings → API** の `Project URL` と `anon public` キーを `config.js` に書く
+3. 続けて `supabase/migrations/0002_allowlist.sql` も貼って Run（ログインできる人を限定する）
+4. SQL Editor で、使う人のGmailを許可リストに追加（アドレスはリポジトリに書かない）
+   ```sql
+   insert into private.allowed_emails (email) values ('自分@gmail.com'), ('夫@gmail.com');
+   ```
+5. **Project Settings → API Keys** の Publishable key（古い画面では anon public）と Project URL を `config.js` に書く
 
 ### 2. Edge Function をデプロイ
 ```sh
@@ -44,5 +49,6 @@ GitHub にリポジトリを作って push → Settings → Pages → Branch `ma
 ローカル確認: `python3 -m http.server 8000` → http://localhost:8000/
 
 ## 注意
+- 許可リストにないGoogleアカウントは登録できません。人を増やすときは上の insert を実行するだけです。
 - Supabase 無料枠は 1週間アクセスがないとプロジェクトが一時停止します（ダッシュボードから再開可能）。
 - フィード検出のテスト: `npm i && node scripts/test-feed.js https://zenn.dev/`

@@ -35,8 +35,14 @@ async function init() {
   });
 
   const { data: { session } } = await sb.auth.getSession();
-  if (location.hash.includes("access_token")) history.replaceState(null, "", location.pathname);
-  if (!session) { $("#login").hidden = false; return; }
+  const authError = /error_description=/.test(location.search + location.hash);
+  if (location.hash.includes("access_token") || authError) history.replaceState(null, "", location.pathname);
+  if (!session) {
+    $("#login").hidden = false;
+    // 許可リストにないアカウントは登録時に拒否される
+    if (authError) $("#login-msg").textContent = "このGoogleアカウントでは利用できません。";
+    return;
+  }
   start(session.user);
 }
 
