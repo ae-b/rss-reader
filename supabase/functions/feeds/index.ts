@@ -1,7 +1,8 @@
-// Edge Function: フィード登録（自動検出）と全フィードの更新
+// Edge Function: フィード登録（自動検出）、全フィードの更新、記事の全文取得
 // 呼び出したユーザーの権限で DB を操作するので、他人のデータには触れない
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { discover, fetchText, parseFeed } from "./feed.js";
+import { extractFullText } from "./fulltext.js";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -56,7 +57,7 @@ Deno.serve(async (req) => {
   const { data: { user } } = await db.auth.getUser(auth.replace(/^Bearer /, ""));
   if (!user) return json({ error: "ログインしてください" }, 401);
 
-  let body: { action?: string; url?: string; folder_id?: string | null };
+  let body: { action?: string; url?: string; folder_id?: string | null; id?: string };
   try { body = await req.json(); } catch { body = {}; }
 
   try {
@@ -113,6 +114,16 @@ Deno.serve(async (req) => {
         added: results.reduce((s, r) => s + r.added, 0),
         errors: results.filter((r) => r.error).map((r) => r.error),
       });
+    }
+
+    // フィードに要約しかない記事を開いたとき、元ページから本文を抜き出して保存する
+    if (body.action === "fulltext") {
+      const { data: a, error } = await db.from("articles").select("id,link").eq("id", body.id).single();
+      if (error || !a?.link) return json({ content: null });
+      const full = await extractFullText(a.link).catch(() => null);
+      if (!full) return json({ content: null });
+      await db.from("articles").update({ content: full.content }).eq("id", a.id);
+      return json({ content: full.content });
     }
 
     return json({ error: "unknown action" }, 400);

@@ -264,11 +264,33 @@ async function openArticle(id) {
 
   const { data } = await sb.from("articles").select("content").eq("id", id).single();
   if (state.current?.id !== id) return;
+  const short = renderArticle(a, data?.content);
+
+  // フィードに要約しかない記事は、元ページから全文を取ってきて差し替える
+  if (short && a.link && !youtubeId(a.link)) {
+    const note = body.querySelector(".more-box .muted");
+    if (note) note.textContent = "全文を読み込み中…";
+    const r = await callFn({ action: "fulltext", id }).catch(() => null);
+    if (state.current?.id !== id) return;
+    if (r?.content) {
+      const top = body.scrollTop;
+      renderArticle(a, r.content);
+      body.scrollTop = top;
+    } else if (note) {
+      note.textContent = "全文を取得できませんでした。続きは元記事でどうぞ。";
+    }
+  }
+}
+
+// 本文を描画する。本文が短い（フィードに要約しかない）とき true を返す
+function renderArticle(a, html) {
+  const body = $("#reader-body");
   const feed = feedById(a.feed_id);
-  const content = cleanHtml(data?.content, a.link || feed?.site_url);
+  const content = cleanHtml(html, a.link || feed?.site_url);
   const yt = youtubeId(a.link);
   const hasImg = content.querySelector("img");
   const text = content.textContent.trim();
+  const short = text.length < 400;
 
   body.innerHTML = `<div class="article">
     <h1><a href="${esc(a.link)}" target="_blank" rel="noopener">${esc(a.title)}</a></h1>
@@ -277,12 +299,13 @@ async function openArticle(id) {
       : (!hasImg && a.image ? `<img class="cover" src="${esc(a.image)}" alt="" referrerpolicy="no-referrer" onerror="this.remove()">` : "")}
     <div class="content"></div>
     <div class="more-box">
-      ${text.length < 400 ? `<p class="muted">フィードには記事の一部だけが含まれています。</p>` : ""}
+      ${short ? `<p class="muted">フィードには記事の一部だけが含まれています。</p>` : ""}
       <a class="btn primary" href="${esc(a.link)}" target="_blank" rel="noopener">元記事を読む ↗</a>
     </div>
   </div>`;
   body.querySelector(".content").append(...content.childNodes);
   body.scrollTop = 0;
+  return short;
 }
 
 function renderReaderBar() {

@@ -1,7 +1,7 @@
 // フィードの取得・解析・自動検出（Edge Function と ローカルテストの両方で使う）
 import { XMLParser } from "fast-xml-parser";
 
-const UA = "Mozilla/5.0 (compatible; MyRSSReader/1.0; +https://github.com/)";
+const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 const MAX_BYTES = 5 * 1024 * 1024;
 
 export function normalizeUrl(input) {

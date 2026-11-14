@@ -1,1 +1,13 @@
-{ "private": true, "type": "module", "scripts": { "test:feed": "node scripts/test-feed.js" }, "devDependencies": { "fast-xml-parser": "4.5.0" } }
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:feed": "node scripts/test-feed.js",
+    "test:full": "node scripts/test-fulltext.js"
+  },
+  "devDependencies": {
+    "fast-xml-parser": "4.5.0",
+    "@mozilla/readability": "0.5.0",
+    "linkedom": "0.18.5"
+  }
+}
