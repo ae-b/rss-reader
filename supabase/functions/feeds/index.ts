@@ -57,26 +57,56 @@ Deno.serve(async (req) => {
   const { data: { user } } = await db.auth.getUser(auth.replace(/^Bearer /, ""));
   if (!user) return json({ error: "ログインしてください" }, 401);
 
-  let body: { action?: string; url?: string; folder_id?: string | null; id?: string };
+  let body: { action?: string; url?: string; feeds?: string[]; folder_id?: string | null; id?: string };
   try { body = await req.json(); } catch { body = {}; }
 
   try {
-    if (body.action === "add") {
-      const f = await discover(body.url ?? "");
-      const { data: dup } = await db.from("feeds").select("id,title").eq("feed_url", f.feedUrl).maybeSingle();
-      if (dup) return json({ error: `「${dup.title}」はすでに登録されています` }, 409);
+    // 入力URLから読めるフィードの候補を探す（登録はしない）
+    if (body.action === "discover") {
+      const found = await discover(body.url ?? "");
+      const { data: mine } = await db.from("feeds").select("feed_url").in("feed_url", found.map((f) => f.feedUrl));
+      const registered = new Set((mine ?? []).map((f) => f.feed_url));
+      return json({
+        candidates: found.map((f) => ({
+          feedUrl: f.feedUrl, title: f.title, siteUrl: f.siteUrl,
+          count: f.items.length, newest: f.items[0]?.published_at ?? null,
+          unofficial: f.unofficial ?? null, registered: registered.has(f.feedUrl),
+        })),
+      });
+    }
 
-      const { data: feed, error } = await db.from("feeds").insert({
-        title: f.title, site_url: f.siteUrl, feed_url: f.feedUrl,
-        folder_id: body.folder_id || null, fetched_at: new Date().toISOString(),
-      }).select().single();
-      if (error) throw error;
-      const r = rows(feed.id, f.items);
-      if (r.length) {
-        const { error: e2 } = await db.from("articles").upsert(r, { onConflict: "feed_id,guid", ignoreDuplicates: true });
-        if (e2) throw e2;
+    // 選ばれたフィードURLを登録し、今ある記事を取り込む
+    if (body.action === "add") {
+      const urls = [...new Set(body.feeds ?? [])].slice(0, 20);
+      if (!urls.length) return json({ error: "登録するフィードを選んでください" }, 400);
+      const feeds = [], skipped: string[] = [];
+      let added = 0;
+      for (const u of urls) {
+        try {
+          const page = await fetchText(u);
+          const f = parseFeed(page.text, page.url);
+          if (!f) throw new Error("フィードとして読めませんでした");
+          const { data: dups } = await db.from("feeds").select("id,title").in("feed_url", [u, page.url]).limit(1);
+          if (dups?.length) { skipped.push(`「${dups[0].title}」は登録済み`); continue; }
+
+          const { data: feed, error } = await db.from("feeds").insert({
+            title: f.title, site_url: f.siteUrl, feed_url: page.url,
+            folder_id: body.folder_id || null, fetched_at: new Date().toISOString(),
+          }).select().single();
+          if (error) throw error;
+          const r = rows(feed.id, f.items);
+          if (r.length) {
+            const { error: e2 } = await db.from("articles").upsert(r, { onConflict: "feed_id,guid", ignoreDuplicates: true });
+            if (e2) throw e2;
+          }
+          feeds.push(feed);
+          added += r.length;
+        } catch (e) {
+          skipped.push(`${u}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
-      return json({ feed, added: r.length });
+      if (!feeds.length) return json({ error: skipped.join("\n") || "登録できませんでした" }, 400);
+      return json({ feeds, added, skipped });
     }
 
     if (body.action === "refresh") {

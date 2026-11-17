@@ -195,23 +195,55 @@ function findAnchorLinks(html, base) {
   return out;
 }
 
-// 自動検出の手がかりをページに出していない大手サイト
+// Shopify のショップ：ページ内の /blogs/○○ へのリンクから、各ブログの Atom フィードを作る
+function findShopifyBlogs(html, base) {
+  if (!/cdn\.shopify\.com|Shopify\.theme|shopify-section/i.test(html)) return [];
+  const origin = new URL(base).origin;
+  const names = new Set();
+  for (const m of html.matchAll(/href=["'](?:https?:\/\/[^/"']+)?\/blogs\/([a-z0-9_-]+)/gi)) names.add(m[1].toLowerCase());
+  return [...names].map((n) => `${origin}/blogs/${n}.atom`);
+}
+
+// 自動検出の手がかりをページに出していないサイト（Feedly などで知られているフィード）
+// unofficial: サイト運営者ではない第三者が作っているフィード
 const KNOWN = [
-  [/(^|\.)nhk\.or\.jp$|^news\.web\.nhk$/, "https://www.nhk.or.jp/rss/news/cat0.xml"],
-  [/(^|\.)asahi\.com$/, "https://www.asahi.com/rss/asahi/newsheadlines.rdf"],
+  { host: /(^|\.)nhk\.or\.jp$|^news\.web\.nhk$/, feeds: ["https://www.nhk.or.jp/rss/news/cat0.xml"] },
+  { host: /(^|\.)asahi\.com$/, feeds: ["https://www.asahi.com/rss/asahi/newsheadlines.rdf"] },
+  { host: /(^|\.)natgeo\.nikkeibp\.co\.jp$|(^|\.)nationalgeographic\.jp$/, feeds: ["https://natgeo.nikkeibp.co.jp/nng/rss/index.rdf"] },
+  { host: /(^|\.)openai\.com$/, feeds: ["https://openai.com/news/rss.xml"] },
+  {
+    host: /(^|\.)47news\.jp$/, unofficial: "wor.jp",
+    feeds: ["https://assets.wor.jp/rss/rdf/ynnews/news.rdf", "https://assets.wor.jp/rss/rdf/ynlocalnews/news.rdf"],
+  },
+  {
+    host: /(^|\.)anthropic\.com$/, unofficial: "GitHub の有志（Olshansk/rss-feeds）",
+    feeds: [
+      "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_news.xml",
+      "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_engineering.xml",
+      "https://raw.githubusercontent.com/Olshansk/rss-feeds/main/feeds/feed_anthropic_research.xml",
+    ],
+  },
 ];
 
 const COMMON_PATHS = ["/feed", "/rss", "/feed.xml", "/rss.xml", "/atom.xml", "/index.xml", "/index.rdf", "/rss2.xml", "/?feed=rss2"];
+const MAX_CANDIDATES = 10;
 
-// 入力されたURLから、読めるフィードのURLを自動で見つける
+function blockedMessage(err) {
+  const code = (String(err?.message).match(/HTTP (\d+)/) || [])[1];
+  if (["401", "403", "429"].includes(code)) {
+    return `このサイトはプログラムからのアクセスを制限しているため読み込めません（HTTP ${code}）`;
+  }
+  return err?.message || "取得に失敗しました";
+}
+
+// 入力されたURLから、読めるフィードの候補を探す
+// 戻り値: [{ feedUrl, title, siteUrl, items, unofficial? }]（見つからなければ例外）
 export async function discover(input) {
   const url = normalizeUrl(input);
-  const page = await fetchText(url);
-  const direct = parseFeed(page.text, page.url);
-  if (direct) return { feedUrl: page.url, ...direct };
+  const host = new URL(url).hostname;
+  const known = KNOWN.find((k) => k.host.test(host));
 
   const tried = new Map();
-  let empty = null; // 記事0件のフィードは最後の手段
   const tryUrl = (u) => {
     if (!tried.has(u)) {
       tried.set(u, fetchText(u, 8000).then((r) => {
@@ -221,35 +253,51 @@ export async function discover(input) {
     }
     return tried.get(u);
   };
-  const pick = async (urls) => {
-    const res = await Promise.all(urls.map(tryUrl));
+  let empty = null; // 記事0件のフィードは最後の手段
+  // 渡したURLのうち、記事のあるフィードを全部返す（同じフィードは1つに）
+  const collect = async (urls, extra = {}) => {
+    const res = await Promise.all(urls.slice(0, MAX_CANDIDATES).map(tryUrl));
+    const out = [];
     for (const r of res) {
-      if (r.feed?.items.length) return r.feed;
-      if (r.feed && !empty) empty = r.feed;
+      if (r.feed?.items.length && !out.some((f) => f.feedUrl === r.feed.feedUrl)) out.push({ ...r.feed, ...extra });
+      else if (r.feed && !empty) empty = r.feed;
     }
-    return { pages: res.filter((r) => r.html) };
+    return Object.assign(out, { pages: res.filter((r) => r.html) });
   };
+  const fromKnown = () => known ? collect(known.feeds, known.unofficial ? { unofficial: known.unofficial } : {}) : [];
 
-  // 1. <link rel="alternate">  2. 既知サイト  3. ページ内のRSSリンク（一覧ページなら1段だけ辿る）  4. よくあるパス
-  let r = await pick(findFeedLinks(page.text, page.url));
-  if (r.items) return r;
+  let page;
+  try {
+    page = await fetchText(url);
+  } catch (e) {
+    // ページ自体が読めなくても、既知のフィードがあればそれを使う
+    const r = await fromKnown();
+    if (r.length) return r;
+    throw new Error(blockedMessage(e));
+  }
+  const direct = parseFeed(page.text, page.url);
+  if (direct) return [{ feedUrl: page.url, ...direct }];
 
-  const host = new URL(page.url).hostname;
-  const known = KNOWN.filter(([re]) => re.test(host)).map(([, u]) => u);
-  if (known.length && (r = await pick(known)).items) return r;
+  // 1. <link rel="alternate">  2. 既知サイト  3. Shopify のブログ
+  // 4. ページ内のRSSリンク（一覧ページなら1段だけ辿る）  5. よくあるパス
+  let r = await collect(findFeedLinks(page.text, page.url));
+  if (r.length) return r;
+  if ((r = await fromKnown()).length) return r;
+  if ((r = await collect(findShopifyBlogs(page.text, page.url))).length) return r;
 
-  r = await pick(findAnchorLinks(page.text, page.url).slice(0, 10));
-  if (r.items) return r;
+  r = await collect(findAnchorLinks(page.text, page.url));
+  if (r.length) return r;
   for (const p of r.pages.slice(0, 3)) {
     const sub = [...findFeedLinks(p.html, p.url), ...findAnchorLinks(p.html, p.url).filter((u) => /\.(xml|rdf)(\?|$)|feed/i.test(u))];
-    if ((r = await pick(sub.slice(0, 10))).items) return r;
+    const found = await collect(sub);
+    if (found.length) return found;
   }
 
   const base = new URL(page.url);
   const dirs = [base.pathname.replace(/\/[^/]*$/, ""), ""].filter((d, i, a) => a.indexOf(d) === i);
   for (const d of dirs) {
-    if ((r = await pick(COMMON_PATHS.map((p) => base.origin + d + p))).items) return r;
+    if ((r = await collect(COMMON_PATHS.map((p) => base.origin + d + p))).length) return r.slice(0, 1);
   }
-  if (empty) return empty;
+  if (empty) return [empty];
   throw new Error("このページからRSS/Atomフィードが見つかりませんでした");
 }

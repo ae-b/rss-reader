@@ -440,6 +440,7 @@ function openAddDialog() {
   $("#add-newfolder").value = "";
   $("#add-newfolder-wrap").hidden = true;
   setMsg("#add-msg", "");
+  resetCandidates();
   $("#add-submit").disabled = false;
   closeDrawer();
   $("#add-dialog").showModal();
@@ -452,33 +453,81 @@ function setMsg(sel, text, error) {
   el.classList.toggle("error", !!error);
 }
 
+// 追加ダイアログ：1回目の送信で候補を探し、複数・非公式なら選んでもらってから登録する
+let addCandidates = null;
+
+function resetCandidates() {
+  addCandidates = null;
+  $("#add-candidates").hidden = true;
+  $("#add-candidates").innerHTML = "";
+  $("#add-submit").textContent = "追加";
+}
+
+function renderCandidates(list) {
+  const box = $("#add-candidates");
+  const many = list.length > 1;
+  const firstNew = list.findIndex((c) => !c.registered);
+  box.innerHTML = `<p class="lead">${many ? `${list.length}件のフィードが見つかりました。登録するものを選んでください。` : "このフィードが見つかりました。"}</p>` +
+    list.map((c, i) => `<label class="cand${c.registered ? " done" : ""}">
+      <input type="checkbox" value="${esc(c.feedUrl)}"${c.registered ? " disabled" : i === firstNew ? " checked" : ""}>
+      <span>
+        <span class="ctitle">${esc(c.title)}</span>${c.registered ? `<span class="badge">登録済み</span>` : ""}${c.unofficial ? `<span class="badge">非公式</span>` : ""}
+        <div class="csub">${c.count}件${c.newest ? ` · 最新 ${relTime(c.newest)}` : ""}${c.unofficial ? ` · ${esc(c.unofficial)} が作成` : ""}</div>
+        <div class="csub">${esc(c.feedUrl)}</div>
+      </span></label>`).join("");
+  box.hidden = false;
+  $("#add-submit").textContent = "選んだフィードを登録";
+}
+
 async function submitAdd(e) {
   e.preventDefault();
   const url = $("#add-url").value.trim();
   if (!url) return;
   $("#add-submit").disabled = true;
   try {
-    let folderId = $("#add-folder").value || null;
-    if (folderId === "__new") {
-      const name = $("#add-newfolder").value.trim();
-      if (!name) throw new Error("フォルダ名を入力してください");
-      const { data, error } = await sb.from("folders").insert({ name }).select().single();
-      if (error) throw error;
-      folderId = data.id;
+    if (!addCandidates) {
+      setMsg("#add-msg", "フィードを探しています…");
+      const { candidates } = await callFn({ action: "discover", url });
+      const c = candidates[0];
+      if (candidates.length === 1 && c.registered) throw new Error(`「${c.title}」はすでに登録されています`);
+      if (candidates.length === 1 && !c.unofficial) return await addFeeds([c.feedUrl]);
+      addCandidates = candidates;
+      renderCandidates(candidates);
+      setMsg("#add-msg", candidates.some((x) => x.unofficial)
+        ? "「非公式」はサイト運営者ではない第三者が作っているフィードです。将来止まる可能性があります。" : "");
+      $("#add-submit").disabled = false;
+      return;
     }
-    setMsg("#add-msg", "フィードを探しています…");
-    const r = await callFn({ action: "add", url, folder_id: folderId });
-    $("#add-dialog").close();
-    toast(`「${r.feed.title}」を登録しました（${r.added}件）`);
-    state.view = { type: "feed", id: r.feed.id };
-    store.set("view", state.view);
-    await loadSidebar();
-    await loadList(true);
+    const picked = [...$("#add-candidates").querySelectorAll("input:checked")].map((i) => i.value);
+    if (!picked.length) throw new Error("登録するフィードを選んでください");
+    await addFeeds(picked);
   } catch (err) {
     setMsg("#add-msg", err.message, true);
     $("#add-submit").disabled = false;
-    loadSidebar();
   }
+}
+
+async function addFeeds(feedUrls) {
+  let folderId = $("#add-folder").value || null;
+  if (folderId === "__new") {
+    const name = $("#add-newfolder").value.trim();
+    if (!name) throw new Error("フォルダ名を入力してください");
+    const { data, error } = await sb.from("folders").insert({ name }).select().single();
+    if (error) throw error;
+    folderId = data.id;
+    // 失敗して再送信しても二重に作らない
+    await loadSidebar();
+    folderOptions($("#add-folder"), folderId, true);
+  }
+  setMsg("#add-msg", "登録しています…");
+  const r = await callFn({ action: "add", feeds: feedUrls, folder_id: folderId });
+  $("#add-dialog").close();
+  const names = r.feeds.length === 1 ? `「${r.feeds[0].title}」` : `${r.feeds.length}件のフィード`;
+  toast(`${names}を登録しました（記事${r.added}件）${r.skipped.length ? `・${r.skipped.length}件はスキップ` : ""}`);
+  state.view = r.feeds.length > 1 && folderId ? { type: "folder", id: folderId } : { type: "feed", id: r.feeds[0].id };
+  store.set("view", state.view);
+  await loadSidebar();
+  await loadList(true);
 }
 
 let editingFeed = null, editingFolder = null;
@@ -610,6 +659,7 @@ function bindUI() {
 
   $("#add-feed-btn").onclick = openAddDialog;
   $("#add-form").onsubmit = submitAdd;
+  $("#add-url").oninput = () => { if (addCandidates) { resetCandidates(); setMsg("#add-msg", ""); } };
   $("#add-folder").onchange = (e) => {
     $("#add-newfolder-wrap").hidden = e.target.value !== "__new";
     if (e.target.value === "__new") $("#add-newfolder").focus();
