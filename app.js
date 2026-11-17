@@ -57,14 +57,22 @@ async function start(user) {
 }
 
 // ---------- サーバー ----------
+// Supabase 側の一時的な不調（応答なし・503 など）は、少し待って2回までやり直す
+const TRANSIENT_STATUS = [502, 503, 504, 546];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function callFn(body) {
-  const { data, error } = await sb.functions.invoke("feeds", { body });
-  if (error) {
+  for (let attempt = 0; ; attempt++) {
+    const { data, error } = await sb.functions.invoke("feeds", { body });
+    if (!error) return data;
+    const transient = error.name === "FunctionsFetchError" || error.name === "FunctionsRelayError" ||
+      TRANSIENT_STATUS.includes(error.context?.status);
+    if (transient && attempt < 2) { await sleep(1500 * (attempt + 1)); continue; }
+    if (transient) throw new Error("サーバーが一時的に不調です。少し待ってもう一度お試しください");
     let msg = error.message;
     try { msg = (await error.context.json()).error || msg; } catch {}
     throw new Error(msg);
   }
-  return data;
 }
 
 async function loadSidebar() {
