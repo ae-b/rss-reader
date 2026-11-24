@@ -141,13 +141,15 @@ a { color: var(--accent); }
 .item .star.on, #r-star.on { color: var(--star); }
 .item .reason { font-size: 13px; color: var(--muted); margin-top: 4px; }
 .related { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 16px; }
-.related h2 { font-size: 14px; color: var(--muted); margin: 0 0 8px; }
+.related h2 { font-size: 14px; color: var(--muted); margin: 0 0 8px; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.related h2 .words { font-size: 12px; font-weight: 400; }
 .related ul { list-style: none; margin: 0; padding: 0; }
-.related li { padding: 10px 8px; border-radius: 8px; cursor: pointer; }
-.related li:hover { background: var(--hover); }
-.related .rtitle { font-weight: 600; line-height: 1.5; }
-.related li.read .rtitle { font-weight: 400; color: var(--muted); }
-.related .rmeta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.related li { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.related li:last-child { border-bottom: 0; }
+.related .rtitle { font-weight: 600; line-height: 1.5; color: var(--text); text-decoration: none; }
+.related .rtitle:hover { text-decoration: underline; }
+.related .rmeta { font-size: 12px; color: var(--muted); margin-top: 4px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.related .rmeta .link { font-size: 12px; }
 .digest-head { padding: 14px; border-bottom: 1px solid var(--line); }
 .digest-head .summary { margin: 0 0 6px; line-height: 1.7; }
 .digest-head .dmeta { font-size: 12px; color: var(--muted); }
@@ -213,7 +215,7 @@ dialog .candidates label.cand {
 dialog .candidates input[type="checkbox"] { display: inline-block; width: auto; margin: 4px 0 0; flex: none; }
 .cand .ctitle { font-weight: 600; }
 .cand .csub { font-size: 12px; color: var(--muted); word-break: break-all; }
-.cand .badge { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--sel); color: var(--accent); margin-left: 4px; font-weight: 400; }
+.cand .badge, .related .badge { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--sel); color: var(--accent); margin-left: 4px; font-weight: 400; }
 .cand.done { opacity: .55; cursor: default; }
 .msg { font-size: 13px; min-height: 1em; margin: 0 0 8px; }
 .msg.error { color: var(--danger); }

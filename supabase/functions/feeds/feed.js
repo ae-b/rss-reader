@@ -301,3 +301,24 @@ export async function discover(input) {
   if (empty) return [empty];
   throw new Error("このページからRSS/Atomフィードが見つかりませんでした");
 }
+
+// Google ニュースの検索RSS（正式なAPIではないので、取れなくなったら空で返す）
+// 戻り値: [{ title, link, source, sourceUrl, published_at }]
+export async function searchNews(words, max = 5) {
+  const url = `https://news.google.com/rss/search?q=${encodeURIComponent(words.join(" "))}&hl=ja&gl=JP&ceid=JP:ja`;
+  const page = await fetchText(url, 8000);
+  let doc;
+  try { doc = parser.parse(page.text); } catch { return []; }
+  const items = [].concat(doc?.rss?.channel?.item || []);
+  return items.slice(0, max * 2).map((it) => {
+    const src = first(it.source);
+    const source = txt(src);
+    let title = stripTags(txt(it.title));
+    if (source && title.endsWith(` - ${source}`)) title = title.slice(0, -(source.length + 3));
+    return {
+      title, link: txt(it.link), source,
+      sourceUrl: (typeof src === "object" && src["@_url"]) || "",
+      published_at: toDate(it.pubDate),
+    };
+  }).filter((x) => x.title && x.link);
+}

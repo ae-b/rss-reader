@@ -2,7 +2,7 @@
 // 画面からの呼び出しは、ログインした本人の権限で DB を操作する（RLS で他人のデータには触れない）
 // 毎朝の自動実行（morning）だけは管理者の鍵で動くので、すべての読み書きに user_id の条件を付ける
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
-import { discover, fetchText, parseFeed } from "./feed.js";
+import { discover, fetchText, parseFeed, searchNews } from "./feed.js";
 import { extractFullText } from "./fulltext.js";
 import { makeDigest } from "./digest.js";
 
@@ -228,6 +228,17 @@ Deno.serve(async (req) => {
     }
 
     if (body.action === "digest") return json(await createDigest(db, user.id));
+
+    // 記事の珍しい名詞で Google ニュースを検索し、ほかのサイトの関連記事を返す（保存はしない）
+    if (body.action === "related_web") {
+      const { data: words, error } = await db.rpc("article_keywords", { p_id: body.id, max_terms: 3 });
+      if (error) throw error;
+      if (!words?.length) return json({ words: [], items: [] });
+      const { data: a } = await db.from("articles").select("title").eq("id", body.id).single();
+      const items = (await searchNews(words, 5).catch(() => null));
+      if (!items) return json({ words, items: [], error: "Google ニュースから取得できませんでした" });
+      return json({ words, items: items.filter((x) => x.title !== a?.title).slice(0, 5) });
+    }
 
     return json({ error: "unknown action" }, 400);
   } catch (e) {

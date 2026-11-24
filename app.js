@@ -18,7 +18,7 @@ const state = {
   unreadOnly: store.get("unreadOnly", false),
   closed: new Set(store.get("closedFolders", [])),
   refreshing: null,
-  related: [], relatedFor: null,
+  webRelated: new Map(),  // 記事id → Google ニュースの結果（同じ記事を開き直しても問い合わせない）
 };
 let sb;
 
@@ -335,7 +335,7 @@ function cleanHtml(html, base) {
 }
 
 async function openArticle(id) {
-  const a = state.articles.find((x) => x.id === id) ?? state.related.find((x) => x.id === id);
+  const a = state.articles.find((x) => x.id === id);
   if (!a) return;
   state.current = a;
   document.querySelectorAll(".item.active").forEach((el) => el.classList.remove("active"));
@@ -350,8 +350,6 @@ async function openArticle(id) {
   $("#reader").classList.add("has-article");
   renderReaderBar();
   if (!a.is_read) setRead(a, true);
-  state.related = state.related.filter((x) => x.id === id);  // 開いた関連記事は残し、ほかは入れ替える
-  loadRelated(id);
 
   const { data } = await sb.from("articles").select("content").eq("id", id).single();
   if (state.current?.id !== id) return;
@@ -393,33 +391,62 @@ function renderArticle(a, html) {
       ${short ? `<p class="muted">フィードには記事の一部だけが含まれています。</p>` : ""}
       <a class="btn primary" href="${esc(a.link)}" target="_blank" rel="noopener">元記事を読む ↗</a>
     </div>
-    <section class="related" hidden></section>
+    <section class="related"><h2>関連する記事</h2><p class="muted">ほかのサイトから探しています…</p></section>
   </div>`;
   body.querySelector(".content").append(...content.childNodes);
   body.scrollTop = 0;
-  renderRelated();
+  watchRelated();
   return short;
 }
 
-// 関連記事（データベースの related_articles で、共通する珍しい単語が多い記事を探す。AIは使わない）
-async function loadRelated(id) {
-  const { data } = await sb.rpc("related_articles", { p_id: id, max_count: 5 });
-  if (state.current?.id !== id) return;
-  state.related = [...state.related.filter((x) => x.id === id), ...(data || [])];
-  state.relatedFor = id;
-  renderRelated();
+// ほかのサイトの関連記事（Google ニュース）。欄までスクロールしたときだけ問い合わせる
+let relatedObserver;
+
+function watchRelated() {
+  const box = $("#reader-body .related");
+  const id = state.current?.id;
+  if (!box || !id) return;
+  if (state.webRelated.has(id)) return renderRelated();
+  relatedObserver?.disconnect();
+  relatedObserver = new IntersectionObserver(async (entries) => {
+    if (!entries.some((e) => e.isIntersecting)) return;
+    relatedObserver.disconnect();
+    if (!state.webRelated.has(id)) {
+      const r = await callFn({ action: "related_web", id }).catch((e) => ({ items: [], error: e.message }));
+      state.webRelated.set(id, r);
+    }
+    if (state.current?.id === id) renderRelated();
+  }, { rootMargin: "200px" });
+  relatedObserver.observe(box);
 }
+
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
 
 function renderRelated() {
   const box = $("#reader-body .related");
-  const list = state.relatedFor === state.current?.id ? state.related.filter((x) => x.id !== state.current.id) : [];
-  if (!box) return;
-  box.hidden = !list.length;
-  box.innerHTML = list.length ? `<h2>関連する記事</h2><ul>${list.map((r) => `
-    <li class="${r.is_read ? "read" : ""}" data-related="${r.id}">
-      <div class="rtitle">${esc(r.title)}</div>
-      <div class="rmeta">${esc(feedById(r.feed_id)?.title || "")} · ${relTime(r.published_at)}</div>
-    </li>`).join("")}</ul>` : "";
+  const r = state.webRelated.get(state.current?.id);
+  if (!box || !r) return;
+  const mine = new Set(state.feeds.flatMap((f) => [hostOf(f.site_url), hostOf(f.feed_url)]).filter(Boolean));
+  const items = r.items || [];
+  box.innerHTML = `<h2>関連する記事${r.words?.length ? `<span class="words">「${esc(r.words.join(" "))}」で検索</span>` : ""}</h2>` +
+    (items.length ? `<ul>${items.map((x) => `
+      <li>
+        <a class="rtitle" href="${esc(x.link)}" target="_blank" rel="noopener noreferrer">${esc(x.title)}</a>
+        <div class="rmeta">
+          <span>${esc(x.source)}${x.published_at ? ` · ${relTime(x.published_at)}` : ""}</span>
+          ${!x.sourceUrl ? "" : mine.has(hostOf(x.sourceUrl))
+            ? `<span class="badge">登録済み</span>`
+            : `<button class="link" data-add-site="${esc(x.sourceUrl)}">＋ このサイトを登録</button>`}
+        </div>
+      </li>`).join("")}</ul>`
+      : `<p class="muted">${esc(r.error || "見つかりませんでした")}</p>`);
+}
+
+// 関連記事の配信元サイトを、いつもの追加画面で登録する（RSS の自動検出もそのまま使う）
+function addSite(url) {
+  openAddDialog();
+  $("#add-url").value = url;
+  $("#add-form").requestSubmit();
 }
 
 function renderReaderBar() {
@@ -642,6 +669,7 @@ async function addFeeds(feedUrls) {
   store.set("view", state.view);
   await loadSidebar();
   await loadList(true);
+  renderRelated();  // 関連記事の「＋ 登録」を「登録済み」に変える
 }
 
 let editingFeed = null, editingFolder = null;
@@ -773,8 +801,8 @@ function bindUI() {
   window.addEventListener("popstate", closeReader);
 
   $("#reader-body").addEventListener("click", (e) => {
-    const r = e.target.closest("[data-related]");
-    if (r) openArticle(r.dataset.related);
+    const site = e.target.closest("[data-add-site]");
+    if (site) addSite(site.dataset.addSite);
   });
 
   $("#r-star").onclick = () => state.current && toggleStar(state.current);
