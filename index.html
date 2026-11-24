@@ -46,12 +46,13 @@
     <header class="bar">
       <button id="menu-btn" class="icon-btn only-narrow" aria-label="メニュー">☰</button>
       <h2 id="view-title">すべて</h2>
-      <label class="toggle"><input type="checkbox" id="unread-only"> 未読のみ</label>
+      <label id="unread-toggle" class="toggle"><input type="checkbox" id="unread-only"> 未読のみ</label>
       <button id="mark-all-btn" class="icon-btn" title="表示中をすべて既読にする" aria-label="すべて既読">✓</button>
     </header>
     <div id="status" class="status"></div>
     <div id="list-scroll" class="list-scroll">
       <div id="ptr" class="ptr"><span class="ptr-icon">↓</span><span class="ptr-text">引っぱって更新</span></div>
+      <div id="digest-head" class="digest-head" hidden></div>
       <ul id="list" class="list"></ul>
       <div id="list-foot" class="list-foot"></div>
     </div>

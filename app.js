@@ -1,5 +1,7 @@
 // RSSリーダー 本体
 const PAGE = 50;
+const DIGEST_PER_DAY = 5; // 表示用。実際の制限は Edge Function 側で行う
+const ARTICLE_COLS = "id,feed_id,title,link,author,image,published_at,is_read,is_starred";
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isMobile = () => matchMedia("(max-width: 700px)").matches;
@@ -109,7 +111,12 @@ async function loadList(reset) {
     state.articles = []; state.done = false; state.seq++;
     $("#list").innerHTML = "";
     $("#list-scroll").scrollTop = 0;
+    const digest = state.view.type === "digest";
+    $("#digest-head").hidden = !digest;
+    $("#unread-toggle").hidden = digest;
+    $("#mark-all-btn").hidden = digest;
   }
+  if (state.view.type === "digest") return reset ? loadDigest() : undefined;
   if (state.loading && !reset) return;
   if (state.done) return;
   if (state.view.type === "folder" && !feedsIn(state.view.id).length) {
@@ -119,7 +126,7 @@ async function loadList(reset) {
   state.loading = true;
   $("#list-foot").textContent = "読み込み中…";
   let q = sb.from("articles")
-    .select("id,feed_id,title,link,author,image,published_at,is_read,is_starred")
+    .select(ARTICLE_COLS)
     .order("published_at", { ascending: false }).order("id")
     .range(state.articles.length, state.articles.length + PAGE - 1);
   q = viewFilter(q);
@@ -132,6 +139,62 @@ async function loadList(reset) {
   if (data.length < PAGE) state.done = true;
   $("#list").insertAdjacentHTML("beforeend", data.map(itemHtml).join(""));
   renderListFoot();
+}
+
+// ---------- 今朝のダイジェスト ----------
+// 見るのは digests テーブルを読むだけ（無料）。AIを呼ぶのは「作る」を押したときだけ
+function todayStart() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+async function loadDigest() {
+  const seq = state.seq;
+  state.done = true;
+  $("#list-foot").textContent = "読み込み中…";
+  const [dg, cnt] = await Promise.all([
+    sb.from("digests").select("*").order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    sb.from("digests").select("id", { count: "exact", head: true }).gte("created_at", todayStart()),
+  ]);
+  if (seq !== state.seq) return;
+  const d = dg.data;
+  let arts = [];
+  if (d?.picks.length) {
+    const { data } = await sb.from("articles").select(ARTICLE_COLS).in("id", d.picks.map((p) => p.article_id));
+    if (seq !== state.seq) return;
+    const byId = new Map((data || []).map((a) => [a.id, a]));
+    arts = d.picks.filter((p) => byId.has(p.article_id)).map((p) => ({ ...byId.get(p.article_id), reason: p.reason }));
+  }
+  state.articles = arts;
+  renderDigestHead(d, DIGEST_PER_DAY - (cnt.count ?? 0));
+  $("#list").innerHTML = arts.map(itemHtml).join("");
+  $("#list-foot").textContent = d && !arts.length ? "選ばれた記事は削除されています" : "";
+}
+
+function renderDigestHead(d, remaining) {
+  const today = d && new Date(d.created_at) >= new Date(todayStart());
+  $("#digest-head").innerHTML = (d
+    ? `<p class="summary">${esc(d.summary)}</p>
+       <div class="dmeta">${fullTime(d.created_at)} 作成 · 未読${d.article_count}件から選びました</div>`
+    : `<p class="muted">未読記事の中から、AIが今朝読むべき記事を選びます。</p>`) +
+    `<div class="dactions">
+       <button class="btn primary small" id="digest-make"${remaining > 0 ? "" : " disabled"}>${today ? "作り直す" : "作る"}</button>
+       <span>今日あと${Math.max(0, remaining)}回</span>
+     </div>`;
+}
+
+async function makeDigest(btn) {
+  btn.disabled = true;
+  btn.textContent = "AIが選んでいます…";
+  try {
+    await callFn({ action: "digest" });
+    if (state.view.type === "digest") await loadList(true);
+  } catch (e) {
+    toast(e.message);
+    btn.disabled = false;
+    btn.textContent = "作る";
+  }
 }
 
 function renderListFoot() {
@@ -162,7 +225,8 @@ function renderNav() {
     more: `<button class="more" data-edit-feed="${f.id}" aria-label="設定">…</button>`,
   });
 
-  let html = navItem({ key: "all", label: "すべて", count: countOf(state.feeds), active: is("all"), icon: "📰" });
+  let html = navItem({ key: "digest", label: "今朝のダイジェスト", active: is("digest"), icon: "☀️" });
+  html += navItem({ key: "all", label: "すべて", count: countOf(state.feeds), active: is("all"), icon: "📰" });
   html += navItem({ key: "starred", label: "お気に入り", active: is("starred"), icon: "⭐" });
 
   if (state.folders.length) html += `<div class="nav-label">フォルダ</div>`;
@@ -187,6 +251,7 @@ function renderNav() {
 
 function viewTitle() {
   const v = state.view;
+  if (v.type === "digest") return "今朝のダイジェスト";
   if (v.type === "starred") return "お気に入り";
   if (v.type === "feed") return feedById(v.id)?.title || "";
   if (v.type === "folder") return state.folders.find((f) => f.id === v.id)?.name || "";
@@ -211,6 +276,7 @@ function itemHtml(a) {
     <div class="main">
       <div class="title">${esc(a.title)}</div>
       <div class="meta"><span class="src">${esc(feed?.title || "")}</span><span>${relTime(a.published_at)}</span></div>
+      ${a.reason ? `<div class="reason">→ ${esc(a.reason)}</div>` : ""}
     </div>
     ${a.image ? `<img class="thumb" src="${esc(a.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
     <button class="star${a.is_starred ? " on" : ""}" data-star="${a.id}" aria-label="お気に入り">${a.is_starred ? "★" : "☆"}</button>
@@ -649,6 +715,10 @@ function bindUI() {
   $("#list-scroll").addEventListener("scroll", (e) => {
     const s = e.currentTarget;
     if (s.scrollTop + s.clientHeight > s.scrollHeight - 400) loadList(false);
+  });
+
+  $("#digest-head").addEventListener("click", (e) => {
+    if (e.target.id === "digest-make") makeDigest(e.target);
   });
 
   $("#unread-only").onchange = (e) => {

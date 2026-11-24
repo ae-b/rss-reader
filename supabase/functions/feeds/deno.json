@@ -2,6 +2,7 @@
   "imports": {
     "fast-xml-parser": "npm:fast-xml-parser@4.5.0",
     "@mozilla/readability": "npm:@mozilla/readability@0.5.0",
-    "linkedom": "npm:linkedom@0.18.5"
+    "linkedom": "npm:linkedom@0.18.5",
+    "@anthropic-ai/sdk": "npm:@anthropic-ai/sdk@1.11.0"
   }
 }
