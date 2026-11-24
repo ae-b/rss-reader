@@ -337,6 +337,7 @@ function cleanHtml(html, base) {
 async function openArticle(id) {
   const a = state.articles.find((x) => x.id === id);
   if (!a) return;
+  relatedObserver?.disconnect();  // 前の記事の関連記事の見張りは止める
   state.current = a;
   document.querySelectorAll(".item.active").forEach((el) => el.classList.remove("active"));
   document.querySelector(`.item[data-id="${id}"]`)?.classList.add("active");
@@ -369,6 +370,8 @@ async function openArticle(id) {
       note.textContent = "全文を取得できませんでした。続きは元記事でどうぞ。";
     }
   }
+  // 本文が確定してから、関連記事の欄の見張りを始める（全文の読み込み中に欄が見えても検索しない）
+  watchRelated();
 }
 
 // 本文を描画する。本文が短い（フィードに要約しかない）とき true を返す
@@ -391,11 +394,11 @@ function renderArticle(a, html) {
       ${short ? `<p class="muted">フィードには記事の一部だけが含まれています。</p>` : ""}
       <a class="btn primary" href="${esc(a.link)}" target="_blank" rel="noopener">元記事を読む ↗</a>
     </div>
-    <section class="related"><h2>関連する記事</h2><p class="muted">ほかのサイトから探しています…</p></section>
+    <section class="related"><h2>関連する記事</h2></section>
   </div>`;
   body.querySelector(".content").append(...content.childNodes);
   body.scrollTop = 0;
-  watchRelated();
+  renderRelated();
   return short;
 }
 
@@ -412,11 +415,12 @@ function watchRelated() {
     if (!entries.some((e) => e.isIntersecting)) return;
     relatedObserver.disconnect();
     if (!state.webRelated.has(id)) {
+      box.insertAdjacentHTML("beforeend", `<p class="muted">ほかのサイトから探しています…</p>`);
       const r = await callFn({ action: "related_web", id }).catch((e) => ({ items: [], error: e.message }));
       state.webRelated.set(id, r);
     }
     if (state.current?.id === id) renderRelated();
-  }, { rootMargin: "200px" });
+  }, { threshold: 0.5 });  // 欄が半分以上見えたら（= 一番下までスクロールしたら）
   relatedObserver.observe(box);
 }
 
