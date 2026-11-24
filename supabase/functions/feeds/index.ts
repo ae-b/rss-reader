@@ -149,8 +149,9 @@ Deno.serve(async (req) => {
 
   // 定期実行（pg_cron）からの呼び出し。合言葉が合うときだけ受け付け、裏で処理してすぐ返事する
   if (body.action === "morning") {
-    const secret = Deno.env.get("CRON_SECRET");
-    if (!secret || req.headers.get("x-cron-secret") !== secret) return json({ error: "forbidden" }, 403);
+    // コピー＆ペーストで紛れ込んだ前後の改行・空白は取り除いてから比べる
+    const secret = Deno.env.get("CRON_SECRET")?.trim();
+    if (!secret || req.headers.get("x-cron-secret")?.trim() !== secret) return json({ error: "forbidden" }, 403);
     if (!body.user_id) return json({ error: "user_id required" }, 400);
     EdgeRuntime.waitUntil(morning(body.user_id));
     return json({ accepted: true }, 202);
