@@ -18,6 +18,7 @@ const state = {
   unreadOnly: store.get("unreadOnly", false),
   closed: new Set(store.get("closedFolders", [])),
   refreshing: null,
+  related: [], relatedFor: null,
 };
 let sb;
 
@@ -334,7 +335,7 @@ function cleanHtml(html, base) {
 }
 
 async function openArticle(id) {
-  const a = state.articles.find((x) => x.id === id);
+  const a = state.articles.find((x) => x.id === id) ?? state.related.find((x) => x.id === id);
   if (!a) return;
   state.current = a;
   document.querySelectorAll(".item.active").forEach((el) => el.classList.remove("active"));
@@ -349,6 +350,8 @@ async function openArticle(id) {
   $("#reader").classList.add("has-article");
   renderReaderBar();
   if (!a.is_read) setRead(a, true);
+  state.related = state.related.filter((x) => x.id === id);  // 開いた関連記事は残し、ほかは入れ替える
+  loadRelated(id);
 
   const { data } = await sb.from("articles").select("content").eq("id", id).single();
   if (state.current?.id !== id) return;
@@ -390,10 +393,33 @@ function renderArticle(a, html) {
       ${short ? `<p class="muted">フィードには記事の一部だけが含まれています。</p>` : ""}
       <a class="btn primary" href="${esc(a.link)}" target="_blank" rel="noopener">元記事を読む ↗</a>
     </div>
+    <section class="related" hidden></section>
   </div>`;
   body.querySelector(".content").append(...content.childNodes);
   body.scrollTop = 0;
+  renderRelated();
   return short;
+}
+
+// 関連記事（データベースの related_articles で、共通する珍しい単語が多い記事を探す。AIは使わない）
+async function loadRelated(id) {
+  const { data } = await sb.rpc("related_articles", { p_id: id, max_count: 5 });
+  if (state.current?.id !== id) return;
+  state.related = [...state.related.filter((x) => x.id === id), ...(data || [])];
+  state.relatedFor = id;
+  renderRelated();
+}
+
+function renderRelated() {
+  const box = $("#reader-body .related");
+  const list = state.relatedFor === state.current?.id ? state.related.filter((x) => x.id !== state.current.id) : [];
+  if (!box) return;
+  box.hidden = !list.length;
+  box.innerHTML = list.length ? `<h2>関連する記事</h2><ul>${list.map((r) => `
+    <li class="${r.is_read ? "read" : ""}" data-related="${r.id}">
+      <div class="rtitle">${esc(r.title)}</div>
+      <div class="rmeta">${esc(feedById(r.feed_id)?.title || "")} · ${relTime(r.published_at)}</div>
+    </li>`).join("")}</ul>` : "";
 }
 
 function renderReaderBar() {
@@ -745,6 +771,11 @@ function bindUI() {
   $("#backdrop").onclick = closeDrawer;
   $("#reader-back").onclick = () => history.back();
   window.addEventListener("popstate", closeReader);
+
+  $("#reader-body").addEventListener("click", (e) => {
+    const r = e.target.closest("[data-related]");
+    if (r) openArticle(r.dataset.related);
+  });
 
   $("#r-star").onclick = () => state.current && toggleStar(state.current);
   $("#r-read").onclick = () => state.current && setRead(state.current, !state.current.is_read);
