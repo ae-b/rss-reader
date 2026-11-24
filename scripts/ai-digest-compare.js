@@ -1,4 +1,4 @@
-// 前回コミット時のプロンプトと今のプロンプトを、同じ記事で比べる
+// 前回コミット時のプロンプトと今のプロンプトを、同じ記事で比べる（どちらもフォルダ分けした記事を受け取る版）
 // 実行: node --env-file=.env scripts/ai-digest-compare.js
 import { execSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -12,10 +12,10 @@ const prev = await import("../.compare/digest-old.js");
 
 // フォルダの代わり。unread は「未読が何件あるか」の想定値（あなたの例の数字）
 const FOLDERS = [
-  { name: "social", unread: 209, feeds: ["https://www.asahi.com/rss/asahi/newsheadlines.rdf"] },
-  { name: "tech", unread: 943, feeds: ["https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml", "https://gigazine.net/news/rss_2.0/"] },
-  { name: "アウトドア", unread: 243, feeds: ["https://www.funq.jp/feed/", "https://natgeo.nikkeibp.co.jp/nng/rss/index.rdf"] },
-  { name: "ニュース", unread: 236, feeds: ["https://www.nhk.or.jp/rss/news/cat0.xml"] },
+  { name: "Social", unread: 210, feeds: ["https://festival-life.com/feed", "https://www.indienative.com/feed/", "https://popeyemagazine.jp/feed/podcast/popeye-web-podcast/", "https://www.switch-pub.co.jp/feed/"] },
+  { name: "Tech", unread: 949, feeds: ["https://gigazine.net/news/rss_2.0/", "https://gihyo.jp/feed/rss2", "https://rss.itmedia.co.jp/rss/2.0/news_bursts.xml"] },
+  { name: "アウトドア", unread: 243, feeds: ["https://www.funq.jp/feed/"] },
+  { name: "ニュース", unread: 236, feeds: ["https://wired.jp/feed/rss", "https://www.nhk.or.jp/rss/news/cat0.xml"] },
 ];
 
 const groups = [];
@@ -31,14 +31,12 @@ for (const f of FOLDERS) {
   g.articles.sort((x, y) => (y.at ?? "").localeCompare(x.at ?? ""));
   groups.push(g);
 }
-// 前のプロンプトは「全部を新しい順に並べて上から300件」
-const articles = groups.flatMap((g) => g.articles).sort((x, y) => (y.at ?? "").localeCompare(x.at ?? "")).slice(0, 300);
 console.log(`記事 ${groups.reduce((n, g) => n + g.articles.length, 0)} 件で比べます\n`);
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 const tryIt = (f) => f().catch((e) => ({ error: e.message }));
 const [a, b] = await Promise.all([
-  tryIt(() => prev.makeDigest(articles, { apiKey })),
+  tryIt(() => prev.makeDigest(groups, { apiKey })),
   tryIt(() => next.makeDigest(groups, { apiKey })),
 ]);
 
@@ -52,7 +50,7 @@ function show(label, d) {
     const x = byId.get(p.article_id);
     console.log(`・${p.group ? `〔${p.group}〕` : ""}[${x.feed}] ${x.title}\n    → ${p.reason}`);
   }
-  if (d.quotas) console.log("\n  配分: " + d.quotas.map((q) => `${q.name} 未読${q.unread}→入力${q.input}件→${q.picks}本`).join(" / "));
+  if (d.stats) console.log("\n  記録: " + d.stats.map((q) => `${q.name} 未読${q.unread}→入力${q.input}→指定${q.quota}→AI${q.returned}→採用${q.kept}`).join(" / "));
   const n = {};
   for (const p of d.picks) { const g = groups.find((g) => g.articles.some((x) => x.id === p.article_id)); n[g.name] = (n[g.name] ?? 0) + 1; }
   console.log("  実際に選ばれた数: " + Object.entries(n).map(([k, v]) => `${k} ${v}`).join(" / "));

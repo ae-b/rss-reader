@@ -187,7 +187,7 @@ Deno.serve(async (req) => {
       const d = await makeDigest([...groups.values()], { apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
       const { data: saved, error: e3 } = await db.from("digests").insert({
         summary: d.summary, picks: d.picks, article_count: d.articleCount,
-        input_tokens: d.usage.input_tokens, output_tokens: d.usage.output_tokens,
+        input_tokens: d.usage.input_tokens, output_tokens: d.usage.output_tokens, stats: d.stats,
       }).select().single();
       if (e3) throw e3;
       return json({ digest: saved, remaining: DIGEST_PER_DAY - used - 1 });
