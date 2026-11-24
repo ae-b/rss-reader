@@ -234,14 +234,18 @@ Deno.serve(async (req) => {
     if (body.action === "related_web") {
       const { data: words, error } = await db.rpc("article_keywords", { p_id: body.id, max_terms: 3 });
       if (error) throw error;
-      if (!words?.length) return json({ words: [], items: [] });
+      if (!words?.length) { console.log(`related_web no words id=${body.id}`); return json({ words: [], items: [] }); }
       const { data: a } = await db.from("articles").select("title").eq("id", body.id).single();
       // 全部の単語を含む記事がなければ、単語を減らして検索し直す（3語 → 2語 → 1語）
       for (let n = words.length; n >= 1; n--) {
         const used = words.slice(0, n);
-        const items = await searchNews(used, 5).catch(() => null);
-        if (!items) return json({ words: used, items: [], error: "Google ニュースから取得できませんでした" });
+        let items;
+        try { items = await searchNews(used, 5); } catch (e) {
+          console.error(`related_web failed words=${used.join(" ")}: ${e instanceof Error ? e.message : e}`);
+          return json({ words: used, items: [], error: "Google ニュースから取得できませんでした" });
+        }
         const hits = items.filter((x) => x.title !== a?.title).slice(0, 5);
+        console.log(`related_web words=${used.join(" ")} hits=${hits.length}`);
         if (hits.length || n === 1) return json({ words: used, items: hits });
       }
     }

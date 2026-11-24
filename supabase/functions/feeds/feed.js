@@ -307,8 +307,11 @@ export async function discover(input) {
 export async function searchNews(words, max = 5) {
   const url = `https://news.google.com/rss/search?q=${encodeURIComponent(words.join(" "))}&hl=ja&gl=JP&ceid=JP:ja`;
   const page = await fetchText(url, 8000);
-  let doc;
-  try { doc = parser.parse(page.text); } catch { return []; }
+  // RSS 以外（確認画面など）が返ってきたら、0件ではなくエラーにして気づけるようにする
+  if (!/<rss[\s>]/.test(page.text.slice(0, 2000))) {
+    throw new Error(`Google ニュースが RSS 以外を返しました（${page.url.slice(0, 80)} / ${page.text.slice(0, 80).replace(/\s+/g, " ")}）`);
+  }
+  const doc = parser.parse(page.text);
   const items = [].concat(doc?.rss?.channel?.item || []);
   return items.slice(0, max * 2).map((it) => {
     const src = first(it.source);
