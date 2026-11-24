@@ -16,7 +16,6 @@ const json = (body: unknown, status = 200) =>
 const KEEP_DAYS = 60;   // 既読かつお気に入りでない記事はこの日数で削除
 const MAX_ITEMS = 100;  // 1フィードから取り込む最大件数
 const DIGEST_PER_DAY = 5;         // ダイジェストを作れる回数（1人1日）
-const DIGEST_MAX_ARTICLES = 300;  // AIに渡す記事の上限（入力10万トークン未満に収める）
 
 // 日本時間の今日0時（UTC表記）
 function jstToday() {
@@ -173,17 +172,21 @@ Deno.serve(async (req) => {
       const used = count ?? 0;
       if (used >= DIGEST_PER_DAY) return json({ error: `ダイジェストは1日${DIGEST_PER_DAY}回までです` }, 429);
 
-      const { data: arts, error: e2 } = await db.rpc("digest_candidates", { max_count: DIGEST_MAX_ARTICLES });
+      // フォルダごとに新しい順で取り出し、まとめる（各フォルダから何件使うかは digest.js が決める）
+      type Row = { id: string; folder_id: string | null; folder_name: string; folder_unread: number; feed_title: string; title: string; head: string };
+      const { data: rows, error: e2 } = await db.rpc("digest_candidates", { per_folder: 300 });
       if (e2) throw e2;
-      if (!arts?.length) return json({ error: "未読の記事がありません" }, 400);
+      if (!rows?.length) return json({ error: "未読の記事がありません" }, 400);
+      const groups = new Map<string, { name: string; unread: number; articles: { id: string; feed: string; title: string; content: string }[] }>();
+      for (const r of rows as Row[]) {
+        const key = r.folder_id ?? "none";
+        if (!groups.has(key)) groups.set(key, { name: r.folder_name, unread: Number(r.folder_unread), articles: [] });
+        groups.get(key)!.articles.push({ id: r.id, feed: r.feed_title, title: r.title, content: r.head });
+      }
 
-      const d = await makeDigest(
-        arts.map((a: { id: string; feed_title: string; title: string; head: string }) =>
-          ({ id: a.id, feed: a.feed_title, title: a.title, content: a.head })),
-        { apiKey: Deno.env.get("ANTHROPIC_API_KEY") },
-      );
+      const d = await makeDigest([...groups.values()], { apiKey: Deno.env.get("ANTHROPIC_API_KEY") });
       const { data: saved, error: e3 } = await db.from("digests").insert({
-        summary: d.summary, picks: d.picks, article_count: arts.length,
+        summary: d.summary, picks: d.picks, article_count: d.articleCount,
         input_tokens: d.usage.input_tokens, output_tokens: d.usage.output_tokens,
       }).select().single();
       if (e3) throw e3;

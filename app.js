@@ -164,7 +164,7 @@ async function loadDigest() {
     const { data } = await sb.from("articles").select(ARTICLE_COLS).in("id", d.picks.map((p) => p.article_id));
     if (seq !== state.seq) return;
     const byId = new Map((data || []).map((a) => [a.id, a]));
-    arts = d.picks.filter((p) => byId.has(p.article_id)).map((p) => ({ ...byId.get(p.article_id), reason: p.reason }));
+    arts = d.picks.filter((p) => byId.has(p.article_id)).map((p) => ({ ...byId.get(p.article_id), reason: p.reason, group: p.group }));
   }
   state.articles = arts;
   renderDigestHead(d, DIGEST_PER_DAY - (cnt.count ?? 0));
@@ -276,7 +276,7 @@ function itemHtml(a) {
     <div class="main">
       <div class="title">${esc(a.title)}</div>
       <div class="meta"><span class="src">${esc(feed?.title || "")}</span><span>${relTime(a.published_at)}</span></div>
-      ${a.reason ? `<div class="reason">→ ${esc(a.reason)}</div>` : ""}
+      ${a.reason ? `<div class="reason">${a.group ? `〔${esc(a.group)}〕` : "→ "}${esc(a.reason)}</div>` : ""}
     </div>
     ${a.image ? `<img class="thumb" src="${esc(a.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}
     <button class="star${a.is_starred ? " on" : ""}" data-star="${a.id}" aria-label="お気に入り">${a.is_starred ? "★" : "☆"}</button>
