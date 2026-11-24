@@ -17,7 +17,7 @@ const cors = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
-const KEEP_DAYS = 60;   // 既読かつお気に入りでない記事はこの日数で削除
+const KEEP_DAYS = 60;   // 既読かつお気に入りでない記事は、取り込んでからこの日数で削除
 const MAX_ITEMS = 100;  // 1フィードから取り込む最大件数
 const DIGEST_PER_DAY = 5;         // ダイジェストを作れる回数（1人1日）
 
@@ -90,8 +90,9 @@ async function refreshAll(db: Db, uid: string) {
     }
   });
 
+  // 削除の基準は「取り込んだ日」。公開日にすると、登録時に取り込んだ古い記事が読んだ直後に消えてしまう
   await db.from("articles").delete()
-    .eq("user_id", uid).eq("is_read", true).eq("is_starred", false).lt("published_at", since.toISOString());
+    .eq("user_id", uid).eq("is_read", true).eq("is_starred", false).lt("created_at", since.toISOString());
 
   return {
     feeds: results.length,
