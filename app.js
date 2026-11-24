@@ -172,16 +172,30 @@ async function loadDigest() {
   $("#list-foot").textContent = d && !arts.length ? "選ばれた記事は削除されています" : "";
 }
 
+// 毎朝 6:50 に自動で作られるので、ボタンは自動作成に失敗した日（7:00 を過ぎても今日の分がない）だけ出す
+const MORNING_DEADLINE = 7;
+
 function renderDigestHead(d, remaining) {
-  const today = d && new Date(d.created_at) >= new Date(todayStart());
-  $("#digest-head").innerHTML = (d
-    ? `<p class="summary">${esc(d.summary)}</p>
-       <div class="dmeta">${fullTime(d.created_at)} 作成 · 未読${d.article_count}件から選びました</div>`
-    : `<p class="muted">未読記事の中から、AIが今朝読むべき記事を選びます。</p>`) +
-    `<div class="dactions">
-       <button class="btn primary small" id="digest-make"${remaining > 0 ? "" : " disabled"}>${today ? "作り直す" : "作る"}</button>
-       <span>今日あと${Math.max(0, remaining)}回</span>
-     </div>`;
+  const made = d && new Date(d.created_at);
+  const today = made && made >= new Date(todayStart());
+  const hm = (t) => t.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+  const failed = !today && new Date().getHours() >= MORNING_DEADLINE;
+
+  const status = today
+    ? `☀️ ${made.getHours() < 9 ? "今朝" : "今日"} ${hm(made)} に作成済み · 未読${d.article_count}件から選びました`
+    : failed
+      ? `⚠️ 今朝の自動作成ができませんでした${d ? `（表示中は ${fullTime(d.created_at)} の分）` : ""}`
+      : `${d ? `${fullTime(d.created_at)} の分を表示中 · ` : ""}次は 6:50 に自動で作成されます`;
+
+  $("#digest-head").innerHTML =
+    (d ? `<p class="summary">${esc(d.summary)}</p>` : "") +
+    `<div class="dmeta">${status}</div>` +
+    (failed
+      ? `<div class="dactions">
+           <button class="btn primary small" id="digest-make"${remaining > 0 ? "" : " disabled"}>今すぐ作る</button>
+           <span>今日あと${Math.max(0, remaining)}回</span>
+         </div>`
+      : "");
 }
 
 async function makeDigest(btn) {
@@ -193,7 +207,7 @@ async function makeDigest(btn) {
   } catch (e) {
     toast(e.message);
     btn.disabled = false;
-    btn.textContent = "作る";
+    btn.textContent = "今すぐ作る";
   }
 }
 
