@@ -235,9 +235,14 @@ Deno.serve(async (req) => {
       if (error) throw error;
       if (!words?.length) return json({ words: [], items: [] });
       const { data: a } = await db.from("articles").select("title").eq("id", body.id).single();
-      const items = (await searchNews(words, 5).catch(() => null));
-      if (!items) return json({ words, items: [], error: "Google ニュースから取得できませんでした" });
-      return json({ words, items: items.filter((x) => x.title !== a?.title).slice(0, 5) });
+      // 全部の単語を含む記事がなければ、単語を減らして検索し直す（3語 → 2語 → 1語）
+      for (let n = words.length; n >= 1; n--) {
+        const used = words.slice(0, n);
+        const items = await searchNews(used, 5).catch(() => null);
+        if (!items) return json({ words: used, items: [], error: "Google ニュースから取得できませんでした" });
+        const hits = items.filter((x) => x.title !== a?.title).slice(0, 5);
+        if (hits.length || n === 1) return json({ words: used, items: hits });
+      }
     }
 
     return json({ error: "unknown action" }, 400);
